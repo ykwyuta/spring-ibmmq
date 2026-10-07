@@ -1,0 +1,13 @@
+spring:
+  application:
+    name: ibmmq-demo
+ibmmq:
+  host: ${IBMMQ_HOST:localhost}
+  port: ${IBMMQ_PORT:1414}
+  channel: ${IBMMQ_CHANNEL:DEV.APP.SVRCONN}
+  queue-manager: ${IBMMQ_QUEUE_MANAGER:QM1}
+  user: ${IBMMQ_USER:app}
+  password: ${IBMMQ_PASSWORD}
+  wait-interval: 1000
+  reconnect-delay: 3000
+  failure-delay: 1000

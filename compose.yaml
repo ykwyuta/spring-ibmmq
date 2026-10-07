@@ -1,0 +1,21 @@
+services:
+  mq:
+    image: icr.io/ibm-messaging/mq:10.0.0.0-r4
+    environment:
+      LICENSE: accept
+      MQ_QMGR_NAME: QM1
+      MQ_DEV: "true"
+    secrets:
+      - mqAppPassword
+    ports:
+      - "1414:1414"
+      - "9443:9443"
+    volumes:
+      - mqdata:/mnt/mqm
+
+secrets:
+  mqAppPassword:
+    file: ./demo/docker/app-password.txt
+
+volumes:
+  mqdata:
