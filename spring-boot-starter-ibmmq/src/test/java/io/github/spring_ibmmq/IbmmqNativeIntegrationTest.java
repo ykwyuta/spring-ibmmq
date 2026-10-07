@@ -11,6 +11,8 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.BeforeEach;
@@ -61,7 +63,10 @@ class IbmmqNativeIntegrationTest {
 
         assertThat(List.of(read(DIRECT_QUEUE), read(DIRECT_QUEUE), read(DIRECT_QUEUE)))
                 .containsExactlyInAnyOrder("first", "second", "third");
-        assertThat(customized).hasValue(3);
+        assertThat(customized).hasValue(1);
+        template.close();
+        assertThatThrownBy(() -> template.send(DIRECT_QUEUE, "after close"))
+                .isInstanceOf(IllegalStateException.class);
     }
 
     @Test
@@ -70,6 +75,63 @@ class IbmmqNativeIntegrationTest {
         assertThatThrownBy(() -> template.send("MISSING.QUEUE", "test"))
                 .isInstanceOf(IbmmqException.class)
                 .hasCauseInstanceOf(MQException.class);
+    }
+
+    /** 保持中の送信接続が切れたら失敗を通知し、次の送信で新しい接続を作る。 */
+    @Test
+    void senderReopensConnectionAfterFailure() throws Exception {
+        AtomicInteger connections = new AtomicInteger();
+        AtomicReference<MQQueueManager> active = new AtomicReference<>();
+        IbmmqConnectionFactory trackingFactory = new IbmmqConnectionFactory(properties, List.of()) {
+            /** 実MQ接続を生成し、試験から失効させるため参照を保持する。 */
+            @Override
+            public MQQueueManager createConnection() throws MQException {
+                MQQueueManager manager = super.createConnection();
+                active.set(manager);
+                connections.incrementAndGet();
+                return manager;
+            }
+        };
+        try (IbmmqTemplate template = new IbmmqTemplate(trackingFactory)) {
+            template.send(DIRECT_QUEUE, "before break");
+            active.get().disconnect();
+            assertThatThrownBy(() -> template.send(DIRECT_QUEUE, "uncertain"))
+                    .isInstanceOf(IbmmqException.class);
+            template.send(DIRECT_QUEUE, "after break");
+            assertThat(connections).hasValue(2);
+        }
+        assertThat(read(DIRECT_QUEUE)).isEqualTo("before break");
+        assertThat(read(DIRECT_QUEUE)).isEqualTo("after break");
+    }
+
+    /** 並行するsyncpoint送信を一つの接続上で混在させずに確定する。 */
+    @Test
+    void concurrentSyncpointSendsReuseOneConnection() throws Exception {
+        AtomicInteger connections = new AtomicInteger();
+        IbmmqConnectionFactory trackingFactory = new IbmmqConnectionFactory(properties,
+                List.of(ignored -> connections.incrementAndGet()));
+        try (IbmmqTemplate template = new IbmmqTemplate(trackingFactory);
+             var executor = Executors.newFixedThreadPool(4)) {
+            List<Future<?>> sends = new java.util.ArrayList<>();
+            for (int i = 0; i < 8; i++) {
+                String body = "parallel-" + i;
+                sends.add(executor.submit(() -> template.send(DIRECT_QUEUE, message -> {
+                    message.format = MQConstants.MQFMT_STRING;
+                    message.characterSet = 1208;
+                    try {
+                        message.write(body.getBytes(StandardCharsets.UTF_8));
+                    } catch (IOException ex) {
+                        throw new IllegalStateException(ex);
+                    }
+                }, options -> options.options |= MQConstants.MQPMO_SYNCPOINT)));
+            }
+            for (Future<?> send : sends) send.get(10, TimeUnit.SECONDS);
+            assertThat(connections).hasValue(1);
+        }
+        List<String> received = new java.util.ArrayList<>();
+        for (int i = 0; i < 8; i++) received.add(read(DIRECT_QUEUE));
+        assertThat(received).containsExactlyInAnyOrder("parallel-0", "parallel-1", "parallel-2",
+                "parallel-3", "parallel-4", "parallel-5", "parallel-6", "parallel-7");
     }
 
     @Test

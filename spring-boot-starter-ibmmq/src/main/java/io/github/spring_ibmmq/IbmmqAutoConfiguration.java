@@ -53,7 +53,7 @@ public class IbmmqAutoConfiguration {
      * @param converter メッセージ変換器
      * @return 送信テンプレート
      */
-    @Bean(name = "ibmmqTemplate")
+    @Bean(name = "ibmmqTemplate", destroyMethod = "close")
     @ConditionalOnMissingBean(IbmmqTemplate.class)
     IbmmqTemplate ibmmqTemplate(IbmmqConnectionFactory connectionFactory, IbmmqMessageConverter converter) {
         return new IbmmqTemplate(connectionFactory, converter);

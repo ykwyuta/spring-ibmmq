@@ -33,7 +33,7 @@ compose.yaml
 
 自動構成は `AutoConfiguration.imports` で登録する。`ibmmq.enabled=false` を指定すると starter の bean を作らない。`IbmmqConnectionFactory` は IBM MQ の `Hashtable` 接続プロパティを作り、`IbmmqConnectionPropertiesCustomizer` の各 bean を適用する。`MQEnvironment` の静的グローバル設定を変更しない。
 
-`IbmmqTemplate.send(queue, String|byte[])` は UTF-8 メッセージを送る。`convertAndSend` は設定済みの `IbmmqMessageConverter` を使う。詳細が必要な送信では `send(queue, messageCustomizer, optionsCustomizer)` を使い、`MQMessage` と `MQPutMessageOptions` を直接設定する。`receive` と `receiveAndConvert` は同期受信を提供する。各操作は接続とキューハンドルを作って閉じる。大量処理向けの接続再利用は今後の課題とする。
+`IbmmqTemplate.send(queue, String|byte[])` は UTF-8 メッセージを送る。`convertAndSend` は設定済みの `IbmmqMessageConverter` を使う。詳細が必要な送信では `send(queue, messageCustomizer, optionsCustomizer)` を使い、`MQMessage` と `MQPutMessageOptions` を直接設定する。`receive` と `receiveAndConvert` は同期受信を提供する。送信専用接続は保持して再利用し、MQ 例外後の次回送信で作り直す。キューハンドルは送信ごとに開閉する。同期受信は送信と別接続を操作ごとに作り、待機中の MQGET が送信を塞がないようにする。
 
 `@IbmmqListener` はキュー名、ワーカー数、待ち時間、名前付き `IbmmqGetOptionsCustomizer` bean、変換器、エラーハンドラを指定できる。既定の変換器ではメソッドの引数は `String`、`byte[]`、`MQMessage` のいずれか一つ。独自変換器を指定すれば別の型も扱える。文字列は UTF-8 とする。各ワーカーは独立した `MQQueueManager` を持つ。IBM の資料では、一つの manager をスレッド間で共有すると待機中の MQGET が他の操作を妨げ得る。[MQQueueManager API](https://www.ibm.com/docs/en/ibm-mq/10.0.x?topic=java-mqqueuemanager)。
 
@@ -58,4 +58,4 @@ java -jar demo/target/demo-0.1.0-SNAPSHOT.jar
 
 demo は起動時に通常テキストと MQMD/PMO カスタマイズ例を送る。二つの listener の受信ログ、MQ 接続再試行、失敗時 backout を確認する。受信メソッドの単体テストだけでなく、実コンテナを使った送受信確認を完了条件とする。
 
-比較用の `native-demo` は追加の送受信例で、starter と Spring の実行時ライブラリを使用しない。`MQQueueManager`、`MQQueue`、`MQMessage`、MQMD、MQPMO、MQGMO、commit/backout を直接扱い、`DEV.QUEUE.3` で送信・受信・往復を行う。IBM MQ classes for Java の接続プロパティは `MQQueueManager` の `Hashtable` 引数に渡す。[IBM MQ classes for Java のアプリケーション作成](https://www.ibm.com/docs/en/ibm-mq/10.0.x?topic=java-writing-mq-classes-applications) を参照。実行方法は [native-demo ガイド](../userguide/native-demo.md) に記す。
+比較用の `native-demo` は追加の送受信例で、starter と Spring の実行時ライブラリを使用しない。`MQQueueManager`、`MQQueue`、`MQMessage`、MQMD、MQPMO、MQGMO、commit/backout を直接扱い、`DEV.QUEUE.3` で送信・受信・往復を行う。`listen` は常駐して MQGET を繰り返し、接続断後はアプリケーション側で新しい接続とキューハンドルを作る。`session` は一つのプロセスで複数の送受信コマンドを受け、接続を再利用する。IBM MQ classes for Java の接続プロパティは `MQQueueManager` の `Hashtable` 引数に渡す。[IBM MQ classes for Java のアプリケーション作成](https://www.ibm.com/docs/en/ibm-mq/10.0.x?topic=java-writing-mq-classes-applications) を参照。実行方法は [native-demo ガイド](../userguide/native-demo.md) に記す。

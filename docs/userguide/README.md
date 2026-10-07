@@ -147,7 +147,9 @@ ibmmqTemplate.send("DEV.QUEUE.2", message -> {
 }, options -> options.options |= MQConstants.MQPMO_FAIL_IF_QUIESCING);
 ```
 
-第2引数で `MQMessage` の本文、MQMD、メッセージプロパティを、第3引数で `MQPutMessageOptions` を変更できます。`MQPMO_SYNCPOINT` を指定した場合、この `send` は MQPUT 成功後に commit し、失敗時に backout を試みます。`MQException` は `IbmmqException` に包まれます。呼び出しごとに新しい MQ 接続とキューハンドルを作る実装です。
+第2引数で `MQMessage` の本文、MQMD、メッセージプロパティを、第3引数で `MQPutMessageOptions` を変更できます。`MQPMO_SYNCPOINT` を指定した場合、この `send` は MQPUT 成功後に commit し、失敗時に backout を試みます。`MQException` は `IbmmqException` に包まれます。template は送信専用の MQ 接続を保持して再利用し、キューハンドルは送信ごとに開閉します。複数スレッドの送信は一つの接続上で直列化され、syncpoint が混ざりません。
+
+送信で MQ 例外が発生すると、その接続を破棄します。次回の送信で新しい接続を作りますが、失敗した送信は自動で再実行しません。MQPUT や commit の結果が不明な場合の重複を避けるため、再送は呼び出し側で判断してください。Spring が作成した `ibmmqTemplate` はアプリ終了時に `close()` されます。手動で生成した template も不要になったら `close()` してください。
 
 ### 変換して送信する
 
@@ -326,7 +328,7 @@ listener は `MQGMO_SYNCPOINT` を付けて MQGET します。受信メソッド
 
 ## 運用上の注意
 
-- **接続数:** listener はワーカーごとに1接続を保持します。送信は呼び出しごとに接続を作成します。`concurrency` と送信量に応じて MQ の接続上限を見積もってください。
+- **接続数:** listener はワーカーごとに1接続、template は送信用に1接続を保持します。template の同期受信は呼び出しごとに別接続を作ります。`concurrency` と同時受信数に応じて MQ の接続上限を見積もってください。
 - **文字コード:** 簡易送信と `String` 受信は UTF-8 前提です。別の CCSID や独自フォーマットは `MQMessage` を用い、自分で読み書きを制御してください。
 - **キューの準備:** starter はキューやチャネルを作成しません。Compose の `MQ_DEV=true` では demo 用の `DEV.QUEUE.1` などが用意されます。
 - **設定変更:** listener のキュー名やワーカー数を稼働中に動的変更する API はありません。設定を変えた場合はアプリを再起動してください。

@@ -30,9 +30,9 @@ IbmmqConnectionPropertiesCustomizer connectionOptions() {
 
 TLS の cipher suite、証明書ストアなど、クライアント接続固有の項目も IBM が定義する接続プロパティで設定します。チャネル側の TLS 設定と対になる値を確認してください。カスタマイザは初期設定の**後**に実行されるため、同じキーに `put` すると `application.yaml` の値を上書きします。[IBM: MQEnvironment](https://www.ibm.com/docs/en/ibm-mq/10.0.x?topic=java-mqenvironment)
 
-listener はワーカーごとに接続を持ち、`IbmmqTemplate` は操作ごとに接続を作ります。IBM は一つの `MQQueueManager` を複数スレッドで共用した場合の MQ 呼出しの直列化を説明しており、待機中の MQGET が他の操作に影響し得ます。この実装で独立接続を採用する理由です。[IBM: MQQueueManager](https://www.ibm.com/docs/en/ibm-mq/10.0.x?topic=java-mqqueuemanager)
+listener はワーカーごとに接続を持ち、`IbmmqTemplate` は送信専用接続を保持します。template の同期受信は操作ごとに別接続を作ります。IBM は一つの `MQQueueManager` を複数スレッドで共用した場合の MQ 呼出しの直列化を説明しており、待機中の MQGET が他の操作に影響し得ます。template は送信を直列化して syncpoint を守り、待機する受信とは接続を分けます。[IBM: MQQueueManager](https://www.ibm.com/docs/en/ibm-mq/10.0.x?topic=java-mqqueuemanager)
 
-IBM MQ classes for Java は IBM MQ クライアントの**自動再接続**をサポートしません。starter の listener は例外後に接続とキューハンドルを作り直します。送信や同期受信は呼び出し元が再実行を判断します。再送する際は、送信結果が不明な障害でも重複を処理できるよう、業務 ID などで冪等性を設計してください。[IBM: Automatic client reconnection](https://www.ibm.com/docs/en/ibm-mq/10.0.x?topic=restart-automatic-client-reconnection)
+IBM MQ classes for Java は IBM MQ クライアントの**自動再接続**をサポートしません。starter の listener と `native-demo listen` は、それぞれアプリケーション側で例外後に接続とキューハンドルを作り直します。template は送信エラーで保持中の接続を破棄し、**次の送信**で再接続します。`native-demo session` も複数コマンドで接続を再利用し、MQエラー後の次の入力で作り直します。失敗した送信や同期受信の再実行は呼び出し元が判断します。再送する際は、送信結果が不明な障害でも重複を処理できるよう、業務 ID などで冪等性を設計してください。[IBM: Automatic client reconnection](https://www.ibm.com/docs/en/ibm-mq/10.0.x?topic=restart-automatic-client-reconnection)
 
 ## MQOPEN: キューの開き方
 

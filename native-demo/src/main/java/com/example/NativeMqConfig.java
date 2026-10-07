@@ -5,7 +5,7 @@ import java.util.Hashtable;
 import java.util.Map;
 
 /**
- * Springを使わないIBM MQクライアントの接続先と受信待ち時間。
+ * Springを使わないIBM MQクライアントの接続先、受信待ち時間、再接続間隔。
  *
  * @param host 接続先ホスト
  * @param port 接続先ポート
@@ -15,9 +15,10 @@ import java.util.Map;
  * @param password 認証パスワード
  * @param queue 送受信するキュー名
  * @param waitMillis MQGETの待ち時間（ミリ秒）
+ * @param reconnectMillis 常駐受信で再接続するまでの待ち時間（ミリ秒）
  */
 public record NativeMqConfig(String host, int port, String channel, String queueManager,
-                             String user, String password, String queue, int waitMillis) {
+                             String user, String password, String queue, int waitMillis, int reconnectMillis) {
     /**
      * 環境変数から開発用MQの接続設定を作る。
      *
@@ -33,13 +34,17 @@ public record NativeMqConfig(String host, int port, String channel, String queue
         if (waitMillis < 0) {
             throw new IllegalArgumentException("IBMMQ_WAIT_MILLIS must be non-negative");
         }
+        int reconnectMillis = Integer.parseInt(environment.getOrDefault("IBMMQ_RECONNECT_MILLIS", "5000"));
+        if (reconnectMillis < 0) {
+            throw new IllegalArgumentException("IBMMQ_RECONNECT_MILLIS must be non-negative");
+        }
         return new NativeMqConfig(
                 environment.getOrDefault("IBMMQ_HOST", "localhost"),
                 Integer.parseInt(environment.getOrDefault("IBMMQ_PORT", "1414")),
                 environment.getOrDefault("IBMMQ_CHANNEL", "DEV.APP.SVRCONN"),
                 environment.getOrDefault("IBMMQ_QUEUE_MANAGER", "QM1"),
                 environment.getOrDefault("IBMMQ_USER", "app"), password,
-                environment.getOrDefault("IBMMQ_QUEUE", "DEV.QUEUE.3"), waitMillis);
+                environment.getOrDefault("IBMMQ_QUEUE", "DEV.QUEUE.3"), waitMillis, reconnectMillis);
     }
 
     /**

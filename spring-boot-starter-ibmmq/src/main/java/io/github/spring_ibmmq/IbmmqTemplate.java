@@ -12,10 +12,12 @@ import java.nio.charset.StandardCharsets;
 import java.util.Objects;
 import java.util.function.Consumer;
 
-/** IBM MQ native API による送信テンプレート。送信のたびに独立した接続を使う。 */
-public class IbmmqTemplate {
+/** IBM MQ native API による送受信テンプレート。送信接続を再利用する。 */
+public class IbmmqTemplate implements AutoCloseable {
     private final IbmmqConnectionFactory connectionFactory;
     private final IbmmqMessageConverter converter;
+    private MQQueueManager senderManager;
+    private boolean closed;
 
     /**
      * 送信に利用する接続ファクトリーを受け取る。
@@ -112,7 +114,7 @@ public class IbmmqTemplate {
         } catch (MQException ex) {
             throw new IbmmqException("MQGET failed for " + queue, ex);
         } finally {
-            close(source, manager);
+            closeResources(source, manager);
         }
     }
 
@@ -138,6 +140,7 @@ public class IbmmqTemplate {
     /**
      * MQMD、本文、MQPMO を利用側で設定して送信する。
      * MQPMO_SYNCPOINT を指定した場合は送信後に commit する。
+     * 送信接続は再利用し、MQ例外後に破棄して次回送信で作り直す。
      *
      * @param queue 送信先キュー名
      * @param messageCustomizer 本文と MQMD の設定
@@ -149,28 +152,64 @@ public class IbmmqTemplate {
         Objects.requireNonNull(queue, "queue");
         Objects.requireNonNull(messageCustomizer, "messageCustomizer");
         Objects.requireNonNull(optionsCustomizer, "optionsCustomizer");
-        MQQueueManager manager = null;
-        MQQueue destination = null;
-        boolean syncpoint = false;
-        try {
-            manager = connectionFactory.createConnection();
-            destination = manager.accessQueue(queue, MQConstants.MQOO_OUTPUT | MQConstants.MQOO_FAIL_IF_QUIESCING);
-            MQMessage message = new MQMessage();
-            MQPutMessageOptions options = new MQPutMessageOptions();
-            messageCustomizer.accept(message);
-            optionsCustomizer.accept(options);
-            syncpoint = (options.options & MQConstants.MQPMO_SYNCPOINT) != 0;
-            destination.put(message, options);
-            if (syncpoint) manager.commit();
-        } catch (MQException ex) {
-            if (syncpoint) backout(manager);
-            throw new IbmmqException("MQPUT failed for " + queue, ex);
-        } catch (RuntimeException ex) {
-            if (syncpoint) backout(manager);
-            throw ex;
-        } finally {
-            close(destination, manager);
+        MQMessage message = new MQMessage();
+        MQPutMessageOptions options = new MQPutMessageOptions();
+        messageCustomizer.accept(message);
+        optionsCustomizer.accept(options);
+        boolean syncpoint = (options.options & MQConstants.MQPMO_SYNCPOINT) != 0;
+        synchronized (this) {
+            if (closed) throw new IllegalStateException("IbmmqTemplate is closed");
+            MQQueueManager manager = null;
+            MQQueue destination = null;
+            boolean success = false;
+            try {
+                manager = senderManager();
+                destination = manager.accessQueue(queue, MQConstants.MQOO_OUTPUT | MQConstants.MQOO_FAIL_IF_QUIESCING);
+                destination.put(message, options);
+                if (syncpoint) manager.commit();
+                success = true;
+            } catch (MQException ex) {
+                if (syncpoint && manager != null) backout(manager);
+                throw new IbmmqException("MQPUT failed for " + queue, ex);
+            } catch (RuntimeException ex) {
+                if (syncpoint && manager != null) backout(manager);
+                throw ex;
+            } finally {
+                closeQueue(destination);
+                if (!success) disconnectSender();
+            }
         }
+    }
+
+    /**
+     * 初回送信時または接続失敗後に送信専用接続を作る。
+     * 呼び出し元はこのテンプレートのモニターを保持する。
+     *
+     * @return 再利用する送信接続
+     * @throws MQException 接続に失敗した場合
+     */
+    private MQQueueManager senderManager() throws MQException {
+        if (senderManager == null) senderManager = connectionFactory.createConnection();
+        return senderManager;
+    }
+
+    /** 送信接続を閉じ、次回送信で再作成できる状態にする。 */
+    private void disconnectSender() {
+        MQQueueManager manager = senderManager;
+        senderManager = null;
+        try {
+            if (manager != null) manager.disconnect();
+        } catch (MQException ignored) { }
+    }
+
+    /**
+     * アプリケーション終了時に保持中の送信接続を閉じる。
+     * 以後の送信は拒否する。
+     */
+    @Override
+    public synchronized void close() {
+        closed = true;
+        disconnectSender();
     }
 
     /**
@@ -185,15 +224,24 @@ public class IbmmqTemplate {
     }
 
     /**
-     * 送信で開いたキューと接続を閉じる。
+     * 一回の送受信で開いたキューハンドルを閉じる。
      *
-     * @param destination 開いたキューハンドル
+     * @param queue 開いたキューハンドル
+     */
+    private void closeQueue(MQQueue queue) {
+        try {
+            if (queue != null) queue.close();
+        } catch (MQException ignored) { }
+    }
+
+    /**
+     * 同期受信で開いたキューと受信専用接続を閉じる。
+     *
+     * @param queue 開いたキューハンドル
      * @param manager 開いた接続
      */
-    private void close(MQQueue destination, MQQueueManager manager) {
-        try {
-            if (destination != null) destination.close();
-        } catch (MQException ignored) { }
+    private void closeResources(MQQueue queue, MQQueueManager manager) {
+        closeQueue(queue);
         try {
             if (manager != null) manager.disconnect();
         } catch (MQException ignored) { }

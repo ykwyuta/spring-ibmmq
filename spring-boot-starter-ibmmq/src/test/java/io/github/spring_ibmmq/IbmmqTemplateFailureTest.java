@@ -28,6 +28,45 @@ class IbmmqTemplateFailureTest {
                 .isInstanceOf(IbmmqException.class);
     }
 
+    /** syncpoint 指定後に接続が失敗しても未作成接続で backout しない。 */
+    @Test
+    void syncpointConnectionFailureDoesNotBackoutMissingManager() throws Exception {
+        IbmmqConnectionFactory factory = mock(IbmmqConnectionFactory.class);
+        when(factory.createConnection()).thenThrow(mqFailure());
+        assertThatThrownBy(() -> new IbmmqTemplate(factory).send("DEV.QUEUE.1", message -> {},
+                options -> options.options |= MQConstants.MQPMO_SYNCPOINT))
+                .isInstanceOf(IbmmqException.class);
+    }
+
+    /** syncpoint送信の接続生成で実行時例外が起きても、未作成接続を使わない。 */
+    @Test
+    void runtimeConnectionFailureDoesNotBackoutMissingManager() throws Exception {
+        IbmmqConnectionFactory factory = mock(IbmmqConnectionFactory.class);
+        when(factory.createConnection()).thenThrow(new IllegalStateException("injected"));
+        assertThatThrownBy(() -> new IbmmqTemplate(factory).send("DEV.QUEUE.1", message -> {},
+                options -> options.options |= MQConstants.MQPMO_SYNCPOINT))
+                .isInstanceOf(IllegalStateException.class);
+    }
+
+    /** syncpointなしのMQPUTで実行時例外が起きた場合はbackoutしない。 */
+    @Test
+    void runtimePutFailureWithoutSyncpointDoesNotBackout() throws Exception {
+        FailureFixture fixture = new FailureFixture();
+        doThrow(new IllegalStateException("injected")).when(fixture.queue)
+                .put(any(MQMessage.class), any(MQPutMessageOptions.class));
+        assertThatThrownBy(() -> fixture.template.send("DEV.QUEUE.1", "body"))
+                .isInstanceOf(IllegalStateException.class);
+    }
+
+    /** 受信接続の生成に失敗した場合は未作成の接続を閉じない。 */
+    @Test
+    void receiveConnectionFailureDoesNotCloseMissingManager() throws Exception {
+        IbmmqConnectionFactory factory = mock(IbmmqConnectionFactory.class);
+        when(factory.createConnection()).thenThrow(mqFailure());
+        assertThatThrownBy(() -> new IbmmqTemplate(factory).receive("DEV.QUEUE.1", 0))
+                .isInstanceOf(IbmmqException.class);
+    }
+
     @Test
     void syncpointPutMqFailureBacksOut() throws Exception {
         FailureFixture fixture = new FailureFixture();
@@ -65,6 +104,7 @@ class IbmmqTemplateFailureTest {
                 .isInstanceOf(IbmmqException.class);
     }
 
+    /** @return 例外経路の検証に使うMQ例外。 */
     private static MQException mqFailure() {
         return new MQException(MQConstants.MQCC_FAILED, MQConstants.MQRC_NOT_AUTHORIZED, null);
     }
@@ -75,6 +115,7 @@ class IbmmqTemplateFailureTest {
         final MQQueue queue = mock(MQQueue.class);
         final IbmmqTemplate template = new IbmmqTemplate(factory);
 
+        /** MQ呼出しで例外を発生させるための接続とキューを設定する。 */
         FailureFixture() throws Exception {
             when(factory.createConnection()).thenReturn(manager);
             when(manager.accessQueue(anyString(), anyInt())).thenReturn(queue);

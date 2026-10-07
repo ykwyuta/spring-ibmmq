@@ -25,6 +25,8 @@ java -jar demo/target/demo-0.1.0-SNAPSHOT.jar
 java -jar native-demo/target/native-demo-0.1.0-SNAPSHOT.jar
 java -jar native-demo/target/native-demo-0.1.0-SNAPSHOT.jar send "sample"
 java -jar native-demo/target/native-demo-0.1.0-SNAPSHOT.jar receive
+java -jar native-demo/target/native-demo-0.1.0-SNAPSHOT.jar listen
+java -jar native-demo/target/native-demo-0.1.0-SNAPSHOT.jar session
 ```
 
 コードと設定方法は [native-demo 利用ガイド](docs/userguide/native-demo.md) を参照してください。
@@ -56,7 +58,7 @@ class Orders {
 
 接続先は `ibmmq.host`、`port`、`channel`、`queue-manager`、`user`、`password` で設定します。`ibmmq.enabled=false` で自動構成を無効化できます。MQ 固有の設定には `IbmmqConnectionPropertiesCustomizer` bean、送信時の `MQMessage` と `MQPutMessageOptions` カスタマイズ、`@IbmmqListener(getOptionsCustomizer="...")` と `MQMessage` 引数を利用できます。同期受信、独自のメッセージ変換器、listener ごとのエラー処理も利用できます。文字列とバイト配列の簡易 API は UTF-8 を使います。
 
-listener の受信は MQ syncpoint で確定します。メソッドが正常終了すれば commit、例外が出れば既定で backout します。エラーハンドラが `DISCARD` を返した場合は commit します。失敗メッセージの繰り返し配送を止める backout queue への自動移送は未実装です。実運用では再試行・隔離方針を設定してください。送信は呼び出しごとに MQ 接続を作成する初期実装です。
+listener の受信は MQ syncpoint で確定します。メソッドが正常終了すれば commit、例外が出れば既定で backout します。エラーハンドラが `DISCARD` を返した場合は commit します。失敗メッセージの繰り返し配送を止める backout queue への自動移送は未実装です。実運用では再試行・隔離方針を設定してください。template は送信専用接続を保持し、複数の送信で再利用します。
 
 設計、対象範囲、今後の課題は [提案書](docs/proposal/ibmmq-starter.md) を参照してください。
 
