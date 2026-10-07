@@ -2,6 +2,8 @@
 
 このガイドは `spring-boot-starter-ibmmq` 0.1.0-SNAPSHOT の実装に対応します。Spring Boot 4.1、Java 21、IBM MQ classes for Java を前提に、JMS を使わずにキューへ送受信する方法を説明します。
 
+starter を使わずに IBM MQ Java API を直接呼ぶ例は [native-demo のガイド](native-demo.md)を参照してください。MQMD、MQOPEN、MQPMO、MQGMO の選び方と starter の設定可能範囲は [IBM MQ オプション設計ガイド](options-design.md)にまとめています。
+
 ## 目次
 
 1. [最短で動かす](#最短で動かす)
@@ -290,6 +292,8 @@ public void onMessage(MQMessage message) {
 ```
 
 starter は `MQGMO_WAIT | MQGMO_SYNCPOINT | MQGMO_FAIL_IF_QUIESCING` を初期設定します。カスタマイザで追加・変更できますが、`MQGMO_SYNCPOINT` は必須で、`waitInterval` は0以上の有限値が必要です。MQ オプションの有効な組み合わせは IBM MQ の仕様に従います。
+
+`MQGMO_CONVERT` を追加すると、MQGET 時の変換条件によって本文の符号化が変わります。上の例のように `MQMessage` を受け取って MQMD の CCSID を確認してください。既定の `String` 変換器は常に UTF-8 として復号するため、変換後が UTF-8 と確認できない場合は独自 converter を使用します。詳しくは [オプション設計ガイドの文字コード節](options-design.md#mqgmo_convert-と文字コード)を参照してください。
 
 ### 接続プロパティ
 

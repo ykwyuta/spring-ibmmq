@@ -25,6 +25,8 @@ spring-boot-starter-ibmmq
   @IbmmqListener / IbmmqListenerRegistry
 demo
   com.example.DemoApplication / DemoReceiver
+native-demo
+  com.example.NativeMqDemo / NativeMqConfig
 compose.yaml
   IBM MQ Advanced for Developers
 ```
@@ -55,3 +57,5 @@ java -jar demo/target/demo-0.1.0-SNAPSHOT.jar
 ```
 
 demo は起動時に通常テキストと MQMD/PMO カスタマイズ例を送る。二つの listener の受信ログ、MQ 接続再試行、失敗時 backout を確認する。受信メソッドの単体テストだけでなく、実コンテナを使った送受信確認を完了条件とする。
+
+比較用の `native-demo` は追加の送受信例で、starter と Spring の実行時ライブラリを使用しない。`MQQueueManager`、`MQQueue`、`MQMessage`、MQMD、MQPMO、MQGMO、commit/backout を直接扱い、`DEV.QUEUE.3` で送信・受信・往復を行う。IBM MQ classes for Java の接続プロパティは `MQQueueManager` の `Hashtable` 引数に渡す。[IBM MQ classes for Java のアプリケーション作成](https://www.ibm.com/docs/en/ibm-mq/10.0.x?topic=java-writing-mq-classes-applications) を参照。実行方法は [native-demo ガイド](../userguide/native-demo.md) に記す。

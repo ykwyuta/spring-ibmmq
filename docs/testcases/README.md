@@ -2,7 +2,7 @@
 
 ## 目的と実行条件
 
-C1 は JaCoCo の **BRANCH 未網羅数 0** と定義する。root `pom.xml` の `jacoco:check` が starter と demo の各モジュールに適用され、未網羅分岐が1件でもあれば `mvn verify` は失敗する。正常な送受信は Docker Compose の実 IBM MQ に対して検証する。Mock は IBM MQ API から例外を発生させる試験に限って使用する。
+C1 は JaCoCo の **BRANCH 未網羅数 0** と定義する。root `pom.xml` の `jacoco:check` が starter、demo、native-demo の各モジュールに適用され、未網羅分岐が1件でもあれば `mvn verify` は失敗する。正常な送受信は Docker Compose の実 IBM MQ に対して検証する。Mock は IBM MQ API から例外を発生させる試験に限って使用する。
 
 実行前に Java 21、Maven、Docker Compose を準備し、リポジトリのルートで次を実行する。他のアプリが `DEV.QUEUE.1`、`DEV.QUEUE.2`、`DEV.QUEUE.3` を同時に使わない状態で実行する。
 
@@ -14,7 +14,7 @@ docker compose up -d
 mvn -B verify
 ```
 
-レポートは `spring-boot-starter-ibmmq/target/site/jacoco/index.html` と `demo/target/site/jacoco/index.html` に作られる。XML と CSV も同じディレクトリに出力される。確認後は `docker compose down` でコンテナを停止できる。これはデータボリュームを削除しない。
+レポートは各モジュールの `target/site/jacoco/index.html` に作られる。XML と CSV も同じディレクトリに出力される。確認後は `docker compose down` でコンテナを停止できる。これはデータボリュームを削除しない。
 
 ## starter のケース
 
@@ -54,12 +54,23 @@ mvn -B verify
 | D01 | `DemoApplicationIntegrationTest.startupSendsAndBothListenersReceive` | 通常起動、実 MQ を使用 | 起動時の2件が `String` と `MQMessage` listener へ届く |
 | D02 | `DemoApplicationIntegrationTest.receiveOnlyStartsWithoutSending` | `--receive-only` で起動 | 送信を省略し、listener bean は起動する |
 
+## native-demo のケース
+
+| ID | テスト | 条件・操作 | 主な期待結果 |
+| --- | --- | --- | --- |
+| N01 | `NativeMqDemoIntegrationTest.defaultCommandRoundTrips` | 引数なし、実MQの `DEV.QUEUE.3` | 既定の本文を送受信し、キューが空になる |
+| N02 | `sendAndReceiveCommandsUseNativeMqmdAndGmo` | `send` と `receive` を別々に実行 | 永続メッセージ、MQFMT_STRING、CCSID 1208、日本語UTF-8本文を確認 |
+| N03 | `explicitRoundtripAndWaitTimeout` | 指定本文の往復、空キューで待機 | 指定本文を受信し、タイムアウト時にメッセージなしを通知 |
+| N04 | `invalidCommandAndMissingQueueFailClearly` | 不明コマンド、存在しないキュー | 入力エラーと native MQ 例外を区別 |
+| N05 | `unexpectedGetFailurePropagates` | MQGET に想定外の例外を注入 | タイムアウトとして扱わず例外を通知。Mock はこの例外試験だけで使用 |
+| N06 | `configurationValidatesPasswordAndWait` | パスワード欠落・空欄、負の待ち時間 | 設定エラーを通知し、正常設定は native 接続プロパティへ反映 |
+
 ## 合格基準
 
 1. 全テストが成功する。
-2. starter と demo の JaCoCo `BRANCH_MISSED` の合計がそれぞれ0である。
-3. `mvn verify` の `jacoco:check` が両モジュールで成功する。
+2. starter、demo、native-demo の JaCoCo `BRANCH_MISSED` の合計がそれぞれ0である。
+3. `mvn verify` の `jacoco:check` が三つのモジュールで成功する。
 
-例外試験の Mock は `IbmmqTemplateFailureTest` と `IbmmqListenerEdgeTest.nonTimeoutMqGetErrorsAreRetriedAndShutdownErrorsAreQuiet` だけで使用し、正常系の送受信に代用しない。
+例外試験の Mock は `IbmmqTemplateFailureTest`、`IbmmqListenerEdgeTest.nonTimeoutMqGetErrorsAreRetriedAndShutdownErrorsAreQuiet`、`NativeMqDemoIntegrationTest.unexpectedGetFailurePropagates` だけで使用し、正常系の送受信に代用しない。
 
 Spring AMQP のテストとの対応と採用理由は [参照したテスト観点](spring-amqp-reference.md) にまとめた。
